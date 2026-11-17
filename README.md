@@ -62,6 +62,8 @@ XGMDriver tricks ARMORY CRATE software into identifying the custom dock as an of
 2. Run the installer making sure to correctly select AMD or NVIDIA depending on the vendor of the GPU you are installing.
 3. If you need to swap between AMD and NVIDIA, uninstall from Control Panel or by running the installer again. Then you can re-install and select the right option.
 
+Desktop AMD cards (for example the Radeon RX 5700) use the AMD option, which reports the GC32L. This fork reports it as PCIe Gen 3, as an updated GC32L does, so Armoury Crate no longer asks for a VBIOS update on the ROG Ally. See the [RX 5700 guide (Spanish)](Docs/RX5700.md).
+
 ## Troubleshooting
 
 ### Error 43 or no video output on NVIDIA GPUs
