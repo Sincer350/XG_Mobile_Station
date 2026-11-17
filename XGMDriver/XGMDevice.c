@@ -92,6 +92,7 @@ typedef struct _XGM_MODEL
     USHORT DeviceID;
     USHORT SubsystemVendorID;
     USHORT SubsystemID;
+    UCHAR  PcieGen;
 } XGM_MODEL, * PXGM_MODEL;
 
 //
@@ -99,13 +100,26 @@ typedef struct _XGM_MODEL
 // XGM_HARDWARE_ID_PREFIX <Name> (see XGMDriver.inf). A device created with
 // any other hardware ID gets G_Models[XGM_DEFAULT_MODEL].
 //
+//
+// PcieGen is the link generation reported in the GEN field of the EGPUID.
+// Armoury Crate requires a VBIOS and BIOS update (ErrorReason OldVBIOS or
+// UpgradingVBIOS) when a GC31R, GC31S or GC32L reports PCIe Gen 4 on any host
+// other than the GV301Q, because those docks were updated to run at Gen 3
+// (see Docs/Software.md). Reporting Gen 3 for them is what an updated dock
+// does, so the switch is not blocked on a VBIOS update that can never apply to
+// a desktop card. The annotated ACPI eGPU switch sets the root port to Gen 3
+// for AMD eGPUs anyway (Docs/ACPI_Annotated.asl).
+//
+// The PcieGen value (REG_DWORD, 3 or 4) in the device's hardware key
+// overrides it; see ReadPcieGen.
+//
 static const XGM_MODEL G_Models[] =
 {
-    { L"GC31R", 0x10de, 0x249d, 0x1043, 0x218b },
-    { L"GC31S", 0x10de, 0x249c, 0x1043, 0x217b },
-    { L"GC32L", 0x1002, 0x73df, 0x1043, 0x21cb },
-    { L"GC33Y", 0x10de, 0x2717, 0x1043, 0x21fb },
-    { L"GC33Z", 0x10de, 0x27a0, 0x1043, 0x220b },
+    { L"GC31R", 0x10de, 0x249d, 0x1043, 0x218b, 3 },
+    { L"GC31S", 0x10de, 0x249c, 0x1043, 0x217b, 3 },
+    { L"GC32L", 0x1002, 0x73df, 0x1043, 0x21cb, 3 },
+    { L"GC33Y", 0x10de, 0x2717, 0x1043, 0x21fb, 4 },
+    { L"GC33Z", 0x10de, 0x27a0, 0x1043, 0x220b, 4 },
 };
 
 #define XGM_DEFAULT_MODEL       2 // GC32L
@@ -229,6 +243,44 @@ static void ReadSerial(
     WdfObjectDelete(pWdfSerial);
 }
 
+// PcieGen is optional; without a valid value the model's generation is used
+static UCHAR ReadPcieGen(
+    _In_ WDFDEVICE Device,
+    _In_ UCHAR defaultGen
+)
+{
+    NTSTATUS        status;
+    WDFKEY          hKey;
+    ULONG           value = 0;
+    UCHAR           gen = defaultGen;
+    DECLARE_CONST_UNICODE_STRING(pPcieGenKey, L"PcieGen");
+
+    status = WdfDeviceOpenRegistryKey(Device, PLUGPLAY_REGKEY_DEVICE, KEY_READ, WDF_NO_OBJECT_ATTRIBUTES, &hKey);
+    if (!NT_SUCCESS(status))
+    {
+        TraceEvents(TRACE_LEVEL_ERROR, TRACE_DRIVER, "ReadPcieGen Error: WdfDeviceOpenRegistryKey failed %!STATUS!", status);
+        return gen;
+    }
+    status = WdfRegistryQueryULong(hKey, &pPcieGenKey, &value);
+    if (NT_SUCCESS(status))
+    {
+        if (value == 3 || value == 4)
+        {
+            gen = (UCHAR)value;
+        }
+        else
+        {
+            TraceEvents(TRACE_LEVEL_WARNING, TRACE_DRIVER, "ReadPcieGen: ignoring invalid PcieGen %u", value);
+        }
+    }
+    else if (status != STATUS_OBJECT_NAME_NOT_FOUND)
+    {
+        TraceEvents(TRACE_LEVEL_ERROR, TRACE_DRIVER, "ReadPcieGen Error: WdfRegistryQueryULong failed %!STATUS!", status);
+    }
+    WdfRegistryClose(hKey);
+    return gen;
+}
+
 VOID
 XGMDriver_LoadConfiguration(
     _Inout_ PDEVICE_CONTEXT DeviceContext
@@ -251,6 +303,8 @@ XGMDriver_LoadConfiguration(
     DeviceContext->EgpuSubsystemVendorID = pModel->SubsystemVendorID;
     DeviceContext->EgpuSubsystemID = pModel->SubsystemID;
     ReadSerial(DeviceContext->Device, DeviceContext->EgpuSerial);
+    DeviceContext->EgpuPcieGen = ReadPcieGen(DeviceContext->Device, pModel->PcieGen);
+    TraceEvents(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "XGMDriver_LoadConfiguration: reporting PCIe Gen %u", DeviceContext->EgpuPcieGen);
 }
 
 static void StoreBigEndian16(
@@ -289,11 +343,13 @@ XGMDriver_Get_EGPUID(
     StoreBigEndian16(&OutputReportBuffer->Data[5], DeviceContext->EgpuSubsystemID);
     StoreBigEndian16(&OutputReportBuffer->Data[7], DeviceContext->EgpuSubsystemVendorID);
     memcpy(&OutputReportBuffer->Data[9], DeviceContext->EgpuSerial, sizeof(DeviceContext->EgpuSerial));
+    // "GEN", a one byte length, then the generation as an ASCII digit, as
+    // sent by a real dock (Docs/Software.md)
     OutputReportBuffer->Data[17] = 'G';
     OutputReportBuffer->Data[18] = 'E';
     OutputReportBuffer->Data[19] = 'N';
-    OutputReportBuffer->Data[20] = ' ';
-    OutputReportBuffer->Data[21] = '4';
+    OutputReportBuffer->Data[20] = 0x01;
+    OutputReportBuffer->Data[21] = '0' + DeviceContext->EgpuPcieGen;
     *OutputReportBufferLength = 24;
 
     return STATUS_SUCCESS;

@@ -1,0 +1,58 @@
+name: Build XGMDriver
+
+on:
+  push:
+    paths:
+      - "XGMDriver/**"
+      - ".github/workflows/build-xgmdriver.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: XGMDriver
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\NSIS\Bin\makensis.exe")) {
+            choco install nsis -y --no-progress
+          }
+
+      # build.bat test signs with RootCA.pfx and ships RootCA.cer. The key is
+      # created for this run only and never leaves the runner, so the
+      # certificate the installer trusts cannot be used to sign anything else.
+      - name: Create test signing certificate
+        shell: pwsh
+        run: |
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert `
+            -Subject "CN=Fake XGM Device Publisher" -KeyAlgorithm RSA -KeyLength 4096 `
+            -HashAlgorithm SHA256 -CertStoreLocation Cert:\CurrentUser\My `
+            -NotAfter (Get-Date).AddYears(10)
+          $pw = ConvertTo-SecureString -String "password" -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath RootCA.pfx -Password $pw | Out-Null
+          Export-Certificate -Cert $cert -FilePath RootCA.cer | Out-Null
+          Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)"
+
+      - name: Build and sign driver
+        shell: cmd
+        run: call build.bat
+
+      - name: Package installer
+        shell: cmd
+        run: call package.bat
+
+      - name: Remove signing key
+        if: always()
+        shell: pwsh
+        run: Remove-Item -Force -ErrorAction SilentlyContinue RootCA.pfx
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: XGMDriverSetup
+          path: XGMDriver/XGMDriverSetup.exe
+          if-no-files-found: error

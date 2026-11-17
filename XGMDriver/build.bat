@@ -17,7 +17,13 @@ set "TIMESTAMP=/tr http://timestamp.digicert.com /td sha256"
 set "SIGNED_DRIVER=x64\Release\SignedDriver"
 
 :: Set up environment
-CALL "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"
+:: Any Visual Studio 2022 edition (Community, Professional, Enterprise, or the
+:: one on a GitHub Actions runner)
+set "VSDEVCMD=C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"
+if not exist "%VSDEVCMD%" (
+    for /f "usebackq delims=" %%I in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -version [17.0^,18.0^) -latest -products * -property installationPath`) do set "VSDEVCMD=%%I\Common7\Tools\VsDevCmd.bat"
+)
+CALL "%VSDEVCMD%"
 
 :: Build the solution in Release mode
 MsBuild XGMDriver.sln /p:Configuration=Release /p:Platform=x64

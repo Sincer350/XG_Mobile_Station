@@ -549,9 +549,13 @@ Function fnc_SpoofGPU_Create
   ${NSD_Check} $hCtl_SpoofGPU_GPUSpoofNVIDIA
   
   ; === GPUSpoofAMD (type: RadioButton) ===
-  ${NSD_CreateRadioButton} 8u 121u 280u 12u "AMD"
+  ${NSD_CreateRadioButton} 8u 121u 280u 12u "AMD (any Radeon, e.g. RX 5700 / 6000 / 7000)"
   Pop $hCtl_SpoofGPU_GPUSpoofAMD
-  
+  ${If} $GpuModel == "GC32L"
+    ${NSD_Uncheck} $hCtl_SpoofGPU_GPUSpoofNVIDIA
+    ${NSD_Check} $hCtl_SpoofGPU_GPUSpoofAMD
+  ${EndIf}
+
 FunctionEnd
 
 ; dialog show function
@@ -566,5 +570,9 @@ Function fnc_SpoofGPU_Leave
     StrCpy $GpuModel "GC33Y"
   ${Else}
     StrCpy $GpuModel "GC32L"
+    ; The disconnect loop is a crash in AMD ADLX (amdadlx64.dll) when a
+    ; display adapter is added, so an AMD eGPU is the case most likely to hit
+    ; it. Preselect the workaround; it can still be unticked on the next page.
+    !insertmacro SelectSection ${SecAcseWorkaround}
   ${EndIf}
 FunctionEnd

@@ -48,6 +48,7 @@ typedef struct _DEVICE_CONTEXT
     USHORT                  EgpuSubsystemVendorID;
     USHORT                  EgpuSubsystemID;
     CHAR                    EgpuSerial[8];
+    UCHAR                   EgpuPcieGen;    // 3 or 4
 
 } DEVICE_CONTEXT, * PDEVICE_CONTEXT;
 
