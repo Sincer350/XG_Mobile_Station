@@ -53,7 +53,8 @@ Try-Add { Get-CimInstance Win32_BIOS | Select-Object SMBIOSBIOSVersion, ReleaseD
 Try-Add { "Last boot: $((Get-CimInstance Win32_OperatingSystem).LastBootUpTime)" }
 
 Section 'XGMDriver install'
-Try-Add { Reg-Values 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\XGMDriver' }
+# The installer is 32-bit, so its uninstall key lands in the WOW6432Node view
+Try-Add { Reg-Values 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\XGMDriver' }
 Try-Add { Get-ChildItem "$env:ProgramFiles\XGMDriver" -ErrorAction Stop | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize }
 Try-Add { "AsusXGDriverInst.exe interposer present: " + (Test-Path "$env:SystemDrive\eSupport\eDriver\Software\Peripherals\ExternalGraphics\AsusXGDriverInst.exe") }
 Try-Add { Get-ChildItem Cert:\LocalMachine\Root | Where-Object Subject -like '*Fake XGM Device Publisher*' | Select-Object Subject, Thumbprint, NotAfter | Format-List }
@@ -83,7 +84,14 @@ $acse = "$env:ProgramFiles\ASUS\ARMOURY CRATE SE Service"
 Try-Add { Get-ChildItem $acse -Recurse -Include 'ArmouryCrateSE.Service.exe', 'GPUSwitchPlugin.dll', 'ExternalGPUConfigHelper2.dll', 'GPUSwitchDialog.exe' -ErrorAction Stop | ForEach-Object { '{0}  {1}' -f $_.VersionInfo.FileVersion, $_.FullName } }
 $loadConf = "$acse\ThrottleMonitorPlugin\Load.conf"
 Add "--- $loadConf"
-if (Test-Path $loadConf) { Try-Add { Get-Content $loadConf -ErrorAction Stop } } else { Add '(missing)' }
+if (Test-Path $loadConf) {
+    Try-Add { Get-Content $loadConf -ErrorAction Stop }
+    # The installer's workaround reads it as 8-bit text; show the encoding
+    Try-Add { 'First bytes: ' + ((Get-Content $loadConf -Encoding Byte -TotalCount 16 -ErrorAction Stop | ForEach-Object { $_.ToString('X2') }) -join ' ') }
+    $listed = @(Get-Content $loadConf -ErrorAction SilentlyContinue | Where-Object { $_.Trim() -eq 'MonitorPlugin.dll' }).Count -gt 0
+    if ($listed) { Add 'Disconnect loop workaround: NOT applied (MonitorPlugin.dll is still loaded)' }
+    else { Add 'Disconnect loop workaround: applied (MonitorPlugin.dll is not loaded)' }
+} else { Add '(missing)' }
 Try-Add { Get-Process -Name 'GHelper', 'ArmouryCrate*', 'GPUSwitch*', 'GPUTrayIcon' -ErrorAction SilentlyContinue | Select-Object Name, Id, Path | Format-Table -AutoSize }
 
 Section 'ASUS ACPI / ATK'
